@@ -1,0 +1,35 @@
+# Journaux locaux des hooks et sauvegardes de compaction : jamais versionnés
+.claude/ledger/
+.claude/precompact-*/
+.claude/coupures.jsonl
+__pycache__/
+
+# OpenTofu : état, cache de providers et variables locales (le verrou .terraform.lock.hcl est VERSIONNÉ)
+terraform.tfstate
+terraform.tfstate.*
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfvars
+*.auto.tfvars
+
+# Plans enregistrés (contiennent l état en clair)
+*.tfplan
+
+# Journaux d essai du runner 4.5 (locaux)
+recettes/runner-4.5.log
+recettes/runner-4.5-toy.log
+
+# Journal local de la feuille 4.7
+recettes/ci-4.7.log
+
+# Feuille 5.6a : cache de providers et état de la cible labo
+.terraform-labo/
+
+# Dossiers jetables des tests
+tests/.tmp-*/
+
+# Cible secours (5.15) : propre à un serveur, écrite par pra/secours-preparer.sh
+.terraform-labo/
+.terraform-secours/
+tofu/secours.tfvars

@@ -1,0 +1,19 @@
+# pra_poste.nft : isolement du poste face au labo PRA (feuille 5.14a/5.14b, D23, D24 (2)).
+# Posé à chaud par pra/poste-labo.sh --oui (jamais dans /etc/nftables.conf, rien de persistant).
+# Entrée virbr-pra : réponses aux connexions du poste seulement, le reste est jeté ; transit : tout est jeté.
+# Les règles « add + flush » rendent la pose rejouable ; ne touche aucune autre table (libvirt, docker).
+add table inet pra_poste
+flush table inet pra_poste
+table inet pra_poste {
+	chain entree {
+		type filter hook input priority -10; policy accept;
+		iifname "virbr-pra" ct state established,related counter accept
+		iifname "virbr-pra" counter drop
+	}
+	chain transit {
+		type filter hook forward priority -10; policy accept;
+		iifname "virbr-pra" counter drop
+		oifname "virbr-pra" ct state established,related counter accept
+		oifname "virbr-pra" counter drop
+	}
+}

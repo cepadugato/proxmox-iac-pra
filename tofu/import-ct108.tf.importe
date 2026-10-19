@@ -1,0 +1,4 @@
+import {
+  to = proxmox_virtual_environment_container.ct108
+  id = "${var.node}/108"
+}

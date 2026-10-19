@@ -1,0 +1,15 @@
+# Dossiers des montages liés de pve et de leurs sous-dossiers directs : chemin uid gid mode (relevé sur pve le 2026-10-18T17:20:52+02:00, pra/secours-preparer.sh les recrée vides avec ces droits)
+/tank/miroir-apt 0 0 755
+/tank/miroir-apt/mint 100000 100000 755
+/tank/miroir-apt/cache 100102 100105 755
+/tank/scripts-http 0 0 755
+/tank/scripts-http/firstboot 0 0 755
+/tank/scripts-http/firstboot-windows 0 0 755
+/tank/scripts-http/firstboot-emmaus 0 0 755
+/tank/scripts-http/firstboot-session 0 0 755
+/tank/partage/Fiches 65534 65534 777
+/tank/partage/Fiches/refusees 65534 65534 777
+/tank/partage/Fiches/traitees 65534 65534 777
+/tank/iso-netboot 1000 1000 755
+/tank/iso-netboot/manjaro 1000 1000 755
+/tank/iso-netboot/debian13-cinnamon 1000 1000 755

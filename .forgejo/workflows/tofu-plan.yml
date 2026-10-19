@@ -1,0 +1,118 @@
+# Feuille 4.7 : plan OpenTofu en lecture seule à chaque push (préparé 2026-10-17, NON ENCORE ÉPROUVÉ sur le runner).
+#
+# Préalable hôte : `bash recettes/ci-4.7.sh tout --oui` (tofu, etat-ci avec l état chiffré, miroir de providers).
+# Déclencheur : push seul (+ lancement manuel). AUCUN pull_request (dépôt privé, PR désactivées : un fork ne doit jamais
+# atteindre le secret PVE_TOKEN_RO).
+#
+# ÉTAT CHIFFRÉ (feuille 4.3, mise à jour 2026-10-17 : à pousser APRÈS la migration et APRÈS la pose du secret) : la CI copie
+# etat-ci/pve.tfstate (AES-GCM, publié par `ci-4.7.sh etat --oui`), le déchiffre avec le secret de dépôt TOFU_ENC_PASSPHRASE
+# (posé par `secrets-4.6.sh --oui phrase`) et refuse tout état lisible en clair. tofu/chiffrement.tf doit être committé.
+# Le chiffrement protège l'état AU REPOS (etat-ci, sauvegardes) ; pendant le job il est déchiffré dans l'espace de travail du runner.
+#
+# Sens sûr : état absent, sha256 qui ne concorde pas, plan avec exit 1 (erreur) ou exit 2 (écart) => job ROUGE.
+# Le plan n'écrit jamais l'état : il tourne sur une COPIE dans l'espace de travail, jamais recopiée vers etat-ci, et une
+# dernière étape prouve que cette copie n'a pas changé. -lock=false : rien à verrouiller sur une copie jetable.
+#
+# Contraintes du runner (feuille 4.5, D19/D21) : utilisateur forgejo-runner sans accès à /mnt, /media ni ~fred ; réseau
+# local seulement (Forgejo :3000 et tunnel pve 127.0.0.1:8006). D'où : pas d'action qui télécharge (ni checkout, ni
+# setup-opentofu), tofu installé en /usr/local/bin, providers lus dans un miroir local (aucun accès à registry.opentofu.org).
+name: tofu-plan
+on:
+  push:
+  workflow_dispatch:
+
+env:
+  TOFU_ETAT_CI: /srv/infra-as-code/etat-ci
+  TF_CLI_CONFIG_FILE: /srv/infra-as-code/etat-ci/tofu.tfrc   # filesystem_mirror, sans méthode « direct »
+  SSL_CERT_FILE: /srv/infra-as-code/etat-ci/pve-root-ca.pem  # CA publique de pve, copiée par ci-4.7.sh
+  TF_VAR_proxmox_endpoint: https://127.0.0.1:8006/            # tunnel local vers pve (1.7)
+  TF_IN_AUTOMATION: "1"
+  CHECKPOINT_DISABLE: "1"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    runs-on: iac-host
+    timeout-minutes: 15
+    steps:
+      - name: récupération du dépôt (git, jeton automatique de la tâche)
+        # [hypothèse à tester] la forme « en-tête Authorization: token <jeton de la tâche> » est acceptée par Forgejo pour le git HTTP.
+        # Le jeton passe par l'environnement git (GIT_CONFIG_*), jamais par argv ; masqué explicitement par ::add-mask::.
+        # Repli, NON câblé : si ce fetch répond 401/403/404, utiliser le secret FORGEJO_READ de 4.6 à la place de
+        # github.token (même forme d'en-tête), puis relancer. Aucune action « uses: » ici (D21 : pas de téléchargement).
+        env:
+          JETON: ${{ github.token }}
+          # JETON: ${{ secrets.FORGEJO_READ }}   # repli (4.6) : remplacer la ligne ci-dessus par celle-ci
+        run: |
+          set -eu
+          echo "::add-mask::$JETON"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="Authorization: token $JETON"
+          git init -q .
+          git fetch -q --depth=1 "http://localhost:3000/${{ github.repository }}.git" "${{ github.sha }}"
+          git checkout -q FETCH_HEAD
+          git log -1 --format='dépôt récupéré : %h %s'
+
+      - name: outils (tofu, version attendue)
+        run: |
+          set -eu
+          v="$(tofu version | head -n 1)"
+          echo "$v"
+          test "$v" = "OpenTofu v1.13.1"
+          git --version
+
+      - name: état en lecture seule (copie contrôlée, jamais renvoyée)
+        run: |
+          set -eu
+          for f in pve.tfstate pve.tfstate.sha256 pve-root-ca.pem tofu.tfrc; do
+            test -r "$TOFU_ETAT_CI/$f" || { echo "ROUGE : $TOFU_ETAT_CI/$f absent ou illisible (état non publié ?)"; exit 1; }
+          done
+          ( cd "$TOFU_ETAT_CI" && sha256sum -c pve.tfstate.sha256 ) || { echo "ROUGE : sha256 de l'état qui ne concorde pas (copie périmée ou altérée)"; exit 1; }
+          test -f tofu/chiffrement.tf || { echo "ROUGE : tofu/chiffrement.tf absent du dépôt (4.3 non committée)"; exit 1; }
+          grep -q encrypted_data "$TOFU_ETAT_CI/pve.tfstate" && ! grep -q '"resources"' "$TOFU_ETAT_CI/pve.tfstate" || { echo "ROUGE : la copie d'état n'est PAS chiffrée : refus"; exit 1; }
+          mkdir -p tofu/etat
+          cp "$TOFU_ETAT_CI/pve.tfstate" tofu/etat/pve.tfstate
+          sha256sum tofu/etat/pve.tfstate | cut -d' ' -f1 > "${RUNNER_TEMP:-/tmp}/etat-avant.sha256"
+          echo "état chiffré copié : $(wc -c < tofu/etat/pve.tfstate) octets"
+
+      - name: fmt -check
+        run: tofu -chdir=tofu fmt -check -recursive -no-color
+
+      - name: init hors ligne (miroir, verrou en lecture seule)
+        # Le .terraform.lock.hcl du dépôt fait foi : -lockfile=readonly refuse toute modification du verrou.
+        env:
+          TF_VAR_tofu_enc_passphrase: ${{ secrets.TOFU_ENC_PASSPHRASE }}   # phrase d'état (4.6), masquée par Forgejo
+        run: |
+          [ -n "$TF_VAR_tofu_enc_passphrase" ] || { echo "ROUGE : secret TOFU_ENC_PASSPHRASE absent (secrets-4.6.sh phrase)"; exit 1; }
+          tofu -chdir=tofu init -input=false -lockfile=readonly -no-color
+
+      - name: validate
+        run: tofu -chdir=tofu validate -no-color
+
+      - name: plan -detailed-exitcode (0 = conforme ; 1 erreur et 2 écart = rouge)
+        # Jeton de LECTURE du provider (secret de dépôt posé par recettes/secrets-4.6.sh), exposé à CETTE étape seulement.
+        # Forgejo masque la valeur dans les journaux.
+        env:
+          PROXMOX_VE_API_TOKEN: ${{ secrets.PVE_TOKEN_RO }}
+          TF_VAR_tofu_enc_passphrase: ${{ secrets.TOFU_ENC_PASSPHRASE }}
+        run: |
+          set +e
+          tofu -chdir=tofu plan -detailed-exitcode -input=false -lock=false -no-color 2>&1 | tee plan.log
+          rc="${PIPESTATUS[0]}"
+          set -e
+          echo "code de sortie du plan : $rc"
+          case "$rc" in
+            0) echo "plan vide : l'infrastructure est conforme au code" ;;
+            2) echo "ROUGE : le plan propose des changements (écart code/pve, ou état périmé : republier l'état après chaque apply)"; exit 1 ;;
+            *) echo "ROUGE : le plan a échoué (code $rc)"; exit 1 ;;
+          esac
+
+      - name: l'état copié n'a pas changé
+        if: always()
+        run: |
+          set -eu
+          test -f "${RUNNER_TEMP:-/tmp}/etat-avant.sha256" || { echo "pas de copie d'état à contrôler"; exit 0; }
+          apres="$(sha256sum tofu/etat/pve.tfstate | cut -d' ' -f1)"
+          test "$apres" = "$(cat "${RUNNER_TEMP:-/tmp}/etat-avant.sha256")" && echo "état inchangé par le plan" || { echo "ROUGE : le plan a modifié la copie de l'état"; exit 1; }

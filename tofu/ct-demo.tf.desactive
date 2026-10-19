@@ -1,0 +1,56 @@
+# Feuille 3.3 : CT jetable de demonstration (VMID 130, choix : recettes/choix-ct-demo.md).
+# Cree par OpenTofu (pas importe). AUCUN secret : ni mot de passe ni cle SSH (initialization sans user_account).
+# unprivileged est ecrit explicitement : le defaut du provider bpg est false.
+resource "proxmox_virtual_environment_container" "demo" {
+  node_name     = "pve"
+  vm_id         = 130
+  description   = "CT jetable de demonstration OpenTofu (feuille 3.3) - peut etre detruit\n"
+  unprivileged  = true
+  start_on_boot = false
+  started       = true
+  tags          = ["tofu-demo"]
+
+  cpu {
+    architecture = "amd64"
+    cores        = 1
+  }
+
+  memory {
+    dedicated = 256
+    swap      = 0
+  }
+
+  disk {
+    datastore_id = "tank"
+    size         = 4
+  }
+
+  initialization {
+    hostname = "tofu-demo"
+    ip_config {
+      ipv4 {
+        address = "10.0.0.60/24"
+        gateway = "10.0.0.254"
+      }
+    }
+  }
+
+  network_interface {
+    name   = "eth0"
+    bridge = "vmbr0"
+  }
+
+  # Sans nesting, systemd 257 (Debian 13) degrade le CT non privilegie (tmp.mount, run-lock.mount,
+  # dev-mqueue.mount en echec). nesting est le seul flag modifiable sans root@pam.
+  features {
+    nesting = true
+  }
+
+  operating_system {
+    type             = "debian"
+    template_file_id = "local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst"
+  }
+
+  # VOLONTAIREMENT SANS prevent_destroy : le CT jetable est le SEUL de ce depot a pouvoir etre detruit
+  # (les CT 100, 101, 122 sont proteges). Sans cela, la feuille 3.5 (destruction) serait refusee.
+}

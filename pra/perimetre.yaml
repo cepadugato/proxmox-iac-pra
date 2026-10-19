@@ -1,0 +1,15 @@
+# Périmètre de la reprise PRA dans le labo, et ordre de reprise (feuille 5.2, D6 amendée par D13).
+# Lu par pra/perimetre.sh (contrôle statique, lecture seule sur pve). Une clé par ligne, format « cle: valeur ».
+# Vague 3 (D28, amende D13) : CT en marche sur pve et présents dans la sauvegarde ; VM 106 à part (vm). VM 110 FOG : hors sauvegarde (5.16).
+passage: 2026-S42
+vague1: 114 108 123 121 128 100
+vague2: 101 122
+vague3: 104 115 117 118 119 120 129 9020
+vm: 106
+ram_labo_go: 16
+marge_ram_hote_go: 4
+root_labo_go: 96
+data_labo_go: 186
+marge_disque_go: 20
+template_go: 1
+dechiffrement_dir: /root/pra/clair/

@@ -1,0 +1,32 @@
+# Essai de la feuille 4.5 : le runner de l'hôte exécute un job `echo ok`.
+# Pas de pull_request (dépôt privé, PR désactivées). Déclenché seulement par un push touchant CE fichier, ou à la main.
+name: runner-echo-ok
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.forgejo/workflows/runner-echo-ok.yml'
+jobs:
+  echo-ok:
+    runs-on: iac-host
+    steps:
+      - name: echo ok
+        run: echo ok
+      - name: isolation vue depuis le job
+        run: |
+          echo "id : $(id)"
+          echo "home visible : [$(ls -A /home 2>&1 | tr '\n' ' ')]"
+          if test -r /var/run/docker.sock; then echo "docker.sock LISIBLE"; exit 1; else echo "docker.sock inaccessible"; fi
+      - name: le job ne lit ni /mnt, ni /media, ni les fichiers de l'utilisateur
+        run: |
+          for f in "/srv/data/Documents/claude/IP/.git/config" "/home/admin/.bashrc" /etc/forgejo/app.ini /var/lib/forgejo; do
+            if test -r "$f"; then echo "LISIBLE : $f"; exit 1; else echo "illisible : $f"; fi
+          done
+          if ls -A /mnt /media 2>/dev/null | grep -q .; then echo "/mnt ou /media visible"; exit 1; else echo "/mnt et /media inaccessibles"; fi
+      - name: réseau local seulement (D21)
+        run: |
+          if curl -s -o /dev/null --max-time 5 http://127.0.0.1:3000/api/v1/version; then echo "Forgejo local joignable"; else echo "Forgejo local INJOIGNABLE"; exit 1; fi
+          for h in 1.1.1.1 10.0.0.254; do
+            if curl -s -o /dev/null --max-time 5 "http://$h/"; then echo "SORTIE POSSIBLE vers $h"; exit 1; else echo "bloqué : $h"; fi
+          done
+          if curl -6 -s -o /dev/null --max-time 5 "http://[2606:4700:4700::1111]/"; then echo "SORTIE IPv6 POSSIBLE"; exit 1; else echo "bloqué : IPv6 2606:4700:4700::1111"; fi

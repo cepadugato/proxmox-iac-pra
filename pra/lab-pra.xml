@@ -1,0 +1,7 @@
+<!-- Réseau libvirt étanche du labo PRA (feuille 5.4).
+     Aucun <forward> (ni nat ni route), aucun <ip> : pas d'adresse côté hôte,
+     pas de DHCP/DNS libvirt. Plage logique côté invités : 10.0.0.0/24. -->
+<network>
+  <name>lab-pra</name>
+  <bridge name='virbr-pra' stp='on' delay='0'/>
+</network>
